@@ -23,6 +23,7 @@ import {
   ensureAuthPersistence,
   saveAuthSession,
   clearAuthSession,
+  isFirebaseConfigured,
 } from "@/lib/firebase";
 import type { AppUser, UserRole } from "@/lib/types";
 
@@ -108,22 +109,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let unsub = () => {};
+    let cancelled = false;
+
     (async () => {
-      await ensureAuthPersistence();
-      const auth = getFirebaseAuth();
-      unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-        setUser(firebaseUser);
-        if (firebaseUser) {
-          await saveAuthSession(firebaseUser);
-          await loadProfile(firebaseUser);
-        } else {
-          clearAuthSession();
-          setProfile(null);
+      try {
+        if (!isFirebaseConfigured()) {
+          if (!cancelled) {
+            setUser(null);
+            setProfile(null);
+            setLoading(false);
+          }
+          return;
         }
-        setLoading(false);
-      });
+
+        await ensureAuthPersistence();
+        const auth = getFirebaseAuth();
+        unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+          if (cancelled) return;
+          setUser(firebaseUser);
+          if (firebaseUser) {
+            try {
+              await saveAuthSession(firebaseUser);
+              await loadProfile(firebaseUser);
+            } catch {
+              setProfile(null);
+            }
+          } else {
+            clearAuthSession();
+            setProfile(null);
+          }
+          setLoading(false);
+        });
+      } catch {
+        if (!cancelled) {
+          setUser(null);
+          setProfile(null);
+          setLoading(false);
+        }
+      }
     })();
-    return () => unsub();
+
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, []);
 
   const signupCustomer = async (data: {

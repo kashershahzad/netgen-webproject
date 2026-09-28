@@ -24,7 +24,38 @@ let _auth: Auth | null = null;
 let _db: Firestore | null = null;
 let _persistenceReady: Promise<void> | null = null;
 
+export function isFirebaseConfigured(): boolean {
+  return Boolean(
+    firebaseConfig.apiKey &&
+      firebaseConfig.authDomain &&
+      firebaseConfig.projectId &&
+      firebaseConfig.projectId !== "undefined" &&
+      firebaseConfig.appId
+  );
+}
+
+export function getFirebaseConfigStatus(): {
+  ok: boolean;
+  missing: string[];
+} {
+  const required: Array<[string, string | undefined]> = [
+    ["NEXT_PUBLIC_FIREBASE_API_KEY", firebaseConfig.apiKey],
+    ["NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN", firebaseConfig.authDomain],
+    ["NEXT_PUBLIC_FIREBASE_PROJECT_ID", firebaseConfig.projectId],
+    ["NEXT_PUBLIC_FIREBASE_APP_ID", firebaseConfig.appId],
+  ];
+  const missing = required
+    .filter(([, value]) => !value || value === "undefined")
+    .map(([key]) => key);
+  return { ok: missing.length === 0, missing };
+}
+
 function getAppInstance(): FirebaseApp {
+  if (!isFirebaseConfigured()) {
+    throw new Error(
+      "Firebase is not configured. Add NEXT_PUBLIC_FIREBASE_* env vars in Vercel Project Settings → Environment Variables, then redeploy."
+    );
+  }
   if (app) return app;
   app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   return app;

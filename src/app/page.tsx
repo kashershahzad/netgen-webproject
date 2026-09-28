@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Package } from "lucide-react";
 import StoreProductCard from "@/components/StoreProductCard";
 import { useAuth } from "@/contexts/AuthContext";
+import { getFirebaseConfigStatus } from "@/lib/firebase";
 import { getAllProducts } from "@/lib/products";
 import type { Product } from "@/lib/types";
 
@@ -14,24 +15,33 @@ export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const firebaseStatus = getFirebaseConfigStatus();
+  const firebaseOk = firebaseStatus.ok;
+  const firebaseMissing = firebaseStatus.missing.join(", ");
 
   const isCustomer = Boolean(user && profile?.role === "user");
 
   useEffect(() => {
+    if (!firebaseOk) {
+      setError(`Firebase env missing on this deploy: ${firebaseMissing}`);
+      setLoading(false);
+      return;
+    }
+
     getAllProducts()
       .then(setProducts)
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load products")
       )
       .finally(() => setLoading(false));
-  }, []);
+  }, [firebaseOk, firebaseMissing]);
 
   return (
     <div className="bg-white">
       {/* Hero: image left, content right */}
       <section className="border-b border-black/8">
-        <div className="mx-auto grid min-h-[calc(100svh-3.5rem)] max-w-6xl grid-cols-1 lg:grid-cols-2">
-          <div className="relative flex min-h-[340px] items-center justify-center overflow-hidden lg:min-h-full">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 lg:grid-cols-2 lg:min-h-[70vh]">
+          <div className="relative flex min-h-[300px] items-center justify-center overflow-hidden py-8 lg:min-h-[70vh]">
             <Image
               src="/hero-graphic.svg?v=2"
               alt="Netgen shopping graphic"
@@ -42,7 +52,7 @@ export default function HomePage() {
             />
           </div>
 
-          <div className="flex flex-col items-start justify-center px-6 py-14 sm:px-10 sm:py-16 lg:px-14">
+          <div className="flex flex-col items-start justify-center px-6 py-12 sm:px-10 sm:py-14 lg:px-14">
             <h1 className="font-[family-name:var(--font-display)] text-5xl font-semibold tracking-tight text-ink sm:text-6xl md:text-7xl">
               Netgen
             </h1>
@@ -104,7 +114,13 @@ export default function HomePage() {
 
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
+              <p className="font-semibold">Could not load products</p>
+              <p className="mt-1">{error}</p>
+              <p className="mt-2 text-xs text-red-600/80">
+                On Vercel: add Firebase env vars (NEXT_PUBLIC_FIREBASE_*) in
+                Project Settings → Environment Variables, then redeploy. Also
+                publish firestore.rules in Firebase Console.
+              </p>
             </div>
           )}
 
