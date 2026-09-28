@@ -1,9 +1,12 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import {
+  initializeAuth,
   getAuth,
-  setPersistence,
+  indexedDBLocalPersistence,
   browserLocalPersistence,
+  onIdTokenChanged,
   type Auth,
+  type User,
 } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 
@@ -16,13 +19,12 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const AUTH_TOKEN_KEY = "netgen_auth_token";
-const AUTH_UID_KEY = "netgen_auth_uid";
+const AUTH_SESSION_KEY = "netgen_auth_session";
 
 let app: FirebaseApp | null = null;
 let _auth: Auth | null = null;
 let _db: Firestore | null = null;
-let _persistenceReady: Promise<void> | null = null;
+let _tokenListenerAttached = false;
 
 export function isFirebaseConfigured(): boolean {
   return Boolean(
@@ -53,7 +55,7 @@ export function getFirebaseConfigStatus(): {
 function getAppInstance(): FirebaseApp {
   if (!isFirebaseConfigured()) {
     throw new Error(
-      "Firebase is not configured. Add NEXT_PUBLIC_FIREBASE_* env vars in Vercel Project Settings → Environment Variables, then redeploy."
+      "Firebase is not configured. Add NEXT_PUBLIC_FIREBASE_* env vars in Vercel, then redeploy."
     );
   }
   if (app) return app;
@@ -61,22 +63,41 @@ function getAppInstance(): FirebaseApp {
   return app;
 }
 
+/**
+ * Client-only Auth with durable local persistence (IndexedDB + localStorage).
+ * This is what keeps users logged in across page refresh on Vercel.
+ */
 export function getFirebaseAuth(): Auth {
-  if (!_auth) {
-    _auth = getAuth(getAppInstance());
-    if (typeof window !== "undefined") {
-      _persistenceReady = setPersistence(_auth, browserLocalPersistence).catch(
-        () => undefined
-      );
-    }
+  if (typeof window === "undefined") {
+    throw new Error("Firebase Auth can only be used in the browser");
   }
+
+  if (_auth) return _auth;
+
+  const appInstance = getAppInstance();
+
+  try {
+    _auth = initializeAuth(appInstance, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+    });
+  } catch {
+    // Auth already initialized in this tab (HMR / Strict Mode)
+    _auth = getAuth(appInstance);
+  }
+
+  if (!_tokenListenerAttached) {
+    _tokenListenerAttached = true;
+    onIdTokenChanged(_auth, async (user) => {
+      if (user) await saveAuthSession(user);
+      else clearAuthSession();
+    });
+  }
+
   return _auth;
 }
 
-/** Ensures local persistence is applied before auth calls */
-export async function ensureAuthPersistence(): Promise<void> {
-  getFirebaseAuth();
-  if (_persistenceReady) await _persistenceReady;
+export async function ensureAuthPersistence(): Promise<Auth> {
+  return getFirebaseAuth();
 }
 
 export function getFirebaseDb(): Firestore {
@@ -84,27 +105,53 @@ export function getFirebaseDb(): Firestore {
   return _db;
 }
 
-export async function saveAuthSession(user: {
-  uid: string;
-  getIdToken: () => Promise<string>;
-}): Promise<void> {
+export async function saveAuthSession(user: User): Promise<void> {
   if (typeof window === "undefined") return;
   try {
-    const token = await user.getIdToken();
-    localStorage.setItem(AUTH_TOKEN_KEY, token);
-    localStorage.setItem(AUTH_UID_KEY, user.uid);
+    const token = await user.getIdToken(/* forceRefresh */ false);
+    const payload = {
+      uid: user.uid,
+      email: user.email || "",
+      token,
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(payload));
+    // legacy keys (optional helpers)
+    localStorage.setItem("netgen_auth_token", token);
+    localStorage.setItem("netgen_auth_uid", user.uid);
   } catch {
-    // ignore storage errors
+    // storage may be blocked
   }
 }
 
 export function clearAuthSession(): void {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(AUTH_TOKEN_KEY);
-  localStorage.removeItem(AUTH_UID_KEY);
+  localStorage.removeItem(AUTH_SESSION_KEY);
+  localStorage.removeItem("netgen_auth_token");
+  localStorage.removeItem("netgen_auth_uid");
+}
+
+export function getStoredAuthSession(): {
+  uid: string;
+  email: string;
+  token: string;
+  savedAt: number;
+} | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(AUTH_SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as {
+      uid: string;
+      email: string;
+      token: string;
+      savedAt: number;
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function getStoredAuthUid(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(AUTH_UID_KEY);
+  return getStoredAuthSession()?.uid ?? null;
 }

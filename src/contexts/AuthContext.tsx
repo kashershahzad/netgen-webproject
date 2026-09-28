@@ -122,22 +122,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        await ensureAuthPersistence();
-        const auth = getFirebaseAuth();
+        const auth = await ensureAuthPersistence();
+
         unsub = onAuthStateChanged(auth, async (firebaseUser) => {
           if (cancelled) return;
-          setUser(firebaseUser);
+
           if (firebaseUser) {
+            setUser(firebaseUser);
+            setLoading(false);
             try {
               await saveAuthSession(firebaseUser);
               await loadProfile(firebaseUser);
             } catch {
-              setProfile(null);
+              // Keep auth user even if profile fetch fails (network/rules)
             }
-          } else {
-            clearAuthSession();
-            setProfile(null);
+            return;
           }
+
+          clearAuthSession();
+          setUser(null);
+          setProfile(null);
           setLoading(false);
         });
       } catch {
