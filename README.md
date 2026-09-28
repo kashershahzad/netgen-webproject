@@ -1,54 +1,51 @@
 # Netgen
 
-Monorepo for the Netgen shop platform: shop-keeper admin panel + customer storefront.
+Single Next.js app: customer storefront + shop-keeper admin panel.
 
-## Apps
+## Routes
 
-| App | Folder | Port | Role on signup |
-|-----|--------|------|----------------|
-| **Admin** (shop keeper panel) | `admin/` | **3000** | `shopKeeper` (hardcoded in admin code) |
-| **Website** (customer storefront) | `website/` | **3001** | `user` (hardcoded in website code) |
+| URL | Who | What |
+|-----|-----|------|
+| `/` | Customers | Storefront — browse products |
+| `/login`, `/signup`, `/account` | Customers | Customer auth & profile |
+| `/admin` | Shop keepers | Admin panel (redirects to dashboard or login) |
+| `/admin/login`, `/admin/signup` | Shop keepers | Shop keeper auth |
+| `/admin/dashboard/*` | Shop keepers | Products, stock, profile |
 
-Roles are set by **which app you sign up on**, not by choosing a role in the UI.
+Roles are set by **where you sign up**, not by choosing a role in the UI.
 
-- Shop keepers manage products, stock, and shop profile in the admin panel.
-- Customers browse all products and manage their profile on the public website.
-- Login is role-gated: a `shopKeeper` cannot sign in on the website (and vice versa).
+- Sign up on the website → `user` (customer)
+- Sign up at `/admin/signup` → `shopKeeper`
 
 ## Setup
 
-1. Copy env files (Firebase + Cloudinary):
+1. Copy env and fill in Firebase + Cloudinary keys:
 
 ```bash
-cp admin/.env.local.example admin/.env.local
-cp website/.env.local.example website/.env.local
-# fill in the same keys in both
+cp .env.local.example .env.local
 ```
 
-2. Install dependencies:
+2. Install & run:
 
 ```bash
-cd admin && npm install
-cd ../website && npm install
+npm install
+npm run dev
 ```
 
-3. Deploy Firestore rules from the repo root (`firestore.rules`) so products are publicly readable.
+- Website: http://localhost:3000  
+- Admin: http://localhost:3000/admin  
 
-## Run locally
+3. Deploy Firestore rules so products are publicly readable and orders work:
 
 ```bash
-# Terminal 1 — admin (port 3000)
-cd admin && npm run dev
-
-# Terminal 2 — storefront (port 3001)
-cd website && npm run dev -- -p 3001
+npx firebase-tools login
+npx firebase-tools deploy --only firestore:rules
 ```
 
-- Admin: http://localhost:3000  
-- Website: http://localhost:3001  
+Or paste `firestore.rules` in Firebase Console → Firestore → Rules → Publish.
 
 ## Stack
 
 - Next.js (App Router) + TypeScript + Tailwind CSS  
 - Firebase Auth + Firestore  
-- Cloudinary (product images, admin upload)
+- Cloudinary (product images)
